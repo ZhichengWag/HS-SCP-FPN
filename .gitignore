@@ -1,0 +1,36 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# PyTorch
+*.pth
+*.pt
+*.ckpt
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# VS Code
+.vscode/
+*.vsix
+
+# Project specific ignores
+work_dirs/
+pseudo_labels/
+原始结果aitod/
+._tmp/
+photo/
+
+# macOS
+.DS_Store
+
+# External dependencies
+mmdetection/
+cocoapi-aitod/

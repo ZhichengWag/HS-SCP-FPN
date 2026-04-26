@@ -1,0 +1,157 @@
+# SCP 分支实现总结
+
+> [!IMPORTANT]
+> 基于 `scp_branch_design.md` v3.0 方案，已将 **Semantic Context Prior (SCP)** 分支完整集成到 HS-FPN 项目中。
+
+---
+
+## 修改文件清单
+
+### 核心模块修改
+
+| 文件 | 修改类型 | 说明 |
+|------|---------|------|
+| [hs_fpn.py](file:///e:/HS-FPN-main/mmdetection/mmdet/models/necks/hs_fpn.py) | **重大修改** | 新增 6 个类，修改 `HS_FPN` |
+| [hs_fpn.py](file:///e:/HS-FPN-main/hs_fpn.py) | 同步 | 根目录副本同步更新 |
+| [two_stage.py](file:///e:/HS-FPN-main/mmdetection/mmdet/models/detectors/two_stage.py) | 修改 | 支持 SCP 语义输出和蒸馏损失 |
+
+### 新增文件
+
+| 文件 | 说明 |
+|------|------|
+| [scp_distill_loss.py](file:///e:/HS-FPN-main/mmdetection/mmdet/models/losses/scp_distill_loss.py) | SCP 蒸馏损失（余弦退火） |
+| [scp_epoch_hook.py](file:///e:/HS-FPN-main/mmdetection/mmdet/core/hook/scp_epoch_hook.py) | Epoch 跟踪 Hook |
+| [load_pseudo_labels.py](file:///e:/HS-FPN-main/mmdetection/mmdet/datasets/pipelines/load_pseudo_labels.py) | 伪标签加载 Pipeline |
+| [generate_pseudo_labels.py](file:///e:/HS-FPN-main/tools/generate_pseudo_labels.py) | 伪标签离线生成脚本 |
+| [cascade_rcnn_r50_aitod_scp.py](file:///e:/HS-FPN-main/config_hsfpn/cascade_rcnn_r50_aitod_scp.py) | SCP 训练配置 |
+
+### 注册表更新
+
+| 文件 | 修改 |
+|------|------|
+| [losses/__init__.py](file:///e:/HS-FPN-main/mmdetection/mmdet/models/losses/__init__.py) | 注册 `SCPDistillationLoss` |
+| [hook/__init__.py](file:///e:/HS-FPN-main/mmdetection/mmdet/core/hook/__init__.py) | 注册 `SCPEpochHook` |
+| [pipelines/__init__.py](file:///e:/HS-FPN-main/mmdetection/mmdet/datasets/pipelines/__init__.py) | 注册 `LoadPseudoLabels` |
+| [formatting.py](file:///e:/HS-FPN-main/mmdetection/mmdet/datasets/pipelines/formatting.py) | `DefaultFormatBundle` 处理 `pseudo_labels` |
+
+---
+
+## 架构变更
+
+### hs_fpn.py 中新增的 6 个类
+
+```mermaid
+graph TD
+    A["HFP_SCP（替换原 HFP）"] --> B["HFP（原有，不变）"]
+    A --> C["SCP（语义上下文先验）"]
+    A --> D["SemanticCrossAttention"]
+    
+    C --> E["LowFreqExtractor（P1/P2, DCT）"]
+    C --> F["LowFreqExtractor_NoDCT（P3/P4, 池化）"]
+    C --> G["LightweightSemanticHead（K=8类）"]
+    
+    D -->|"Q ← HFP 特征"| H["融合输出"]
+    D -->|"K,V ← SCP 语义图"| H
+```
+
+### 数据流变更
+
+```
+原始:  lateral → HFP(x) → SDP → FPN output
+现在:  lateral → HFP_SCP(x, patch_size) → (fused_feat, sem_logits) → SDP → FPN output
+                  ├── HFP(x)          → F_hfp
+                  ├── SCP(x)          → S (K=8 类)
+                  └── CrossAttn(F_hfp, S) → fused_feat
+```
+
+### HS_FPN.forward() 返回值变更
+
+```python
+# 训练时: 返回 (FPN特征, 语义logits列表)
+return tuple(outs), all_semantic_logits  # all_semantic_logits: 4个FPN层级
+
+# 推理时: 只返回 FPN特征（向后兼容）
+return tuple(outs)
+```
+
+---
+
+## 训练流程
+
+### 阶段 0: 离线生成伪标签
+
+```bash
+python tools/generate_pseudo_labels.py \
+    --img_dir AI-TOD/trainval/images \
+    --output_dir pseudo_labels/trainval \
+    --device cuda:0
+```
+
+> [!WARNING]
+> 必须在训练前完成！需要安装 `transformers` 库。
+> SegFormer-B5 模型会从 HuggingFace 自动下载。
+
+### 阶段 1+2: 端到端训练
+
+```bash
+cd mmdetection
+python tools/train.py ../config_hsfpn/cascade_rcnn_r50_aitod_scp.py
+```
+
+训练过程中：
+- **SCPEpochHook** 在每个 epoch 开始时设置 `model.current_epoch`
+- **LoadPseudoLabels** 在数据管线中加载每张图的伪标签
+- **TwoStageDetector.forward_train** 计算蒸馏损失，权重按余弦退火：
+
+| epoch | λ(t) | 说明 |
+|:-----:|:----:|------|
+| 0 | 0.50 | 蒸馏全力引导 |
+| 4 | 0.25 | 逐步减弱 |
+| 8 | 0.07 | 检测损失主导 |
+| 12 | 0.00 | 蒸馏完全退出 |
+
+---
+
+## 向后兼容性
+
+> [!TIP]
+> 所有修改保持向后兼容：
+> - **无伪标签时**：如果 `pseudo_labels` 不在 kwargs 中，蒸馏损失自动跳过
+> - **推理时**：neck 只返回 tuple(outs)，不包含语义 logits
+> - **残差连接**：CrossAttention 输出 = HFP + W_out·O，权重为零时退化为纯 HFP
+> - **原始配置文件**：使用原始 config 训练时，`num_classes` 和 `attn_dim` 使用默认值
+
+## 配置差异
+
+```diff
+ neck=dict(
+     type='HS_FPN',
+     in_channels=[256, 512, 1024, 2048],
+     out_channels=256,
+     num_outs=5,
+-    ratio=(0.25, 0.25)),
++    ratio=(0.25, 0.25),
++    num_classes=8,    # SCP 粗类别数
++    attn_dim=64),     # Cross Attention 隐藏维度
+
+ # 训练管线新增：
++dict(type='LoadPseudoLabels', pseudo_label_dir='pseudo_labels/trainval'),
+
+ # Collect 新增 key：
+-dict(type='Collect', keys=['img', 'gt_bboxes', 'gt_labels'])
++dict(type='Collect', keys=['img', 'gt_bboxes', 'gt_labels', 'pseudo_labels'])
+
+ # 新增 Hook：
++dict(type='SCPEpochHook'),
+```
+
+---
+
+## 参数量开销
+
+| 组件 | 参数量（C=256, K=8, d=64） |
+|------|---------------------------|
+| LFE × 4层 | ~68K |
+| LSH × 4层 | ~56K |
+| CrossAttn × 4层 | ~136K |
+| **SCP 总增量** | **~260K（约为 HFP 的 30%）** |

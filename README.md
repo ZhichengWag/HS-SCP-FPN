@@ -78,7 +78,7 @@ Make sure the `__all__` list of `__init__.py` includes "HS_FPN".
 ## Train HS-FPN
 Train a network with with single GPU, for example, Cascade R-CNN w/ HS-FPN:
 ```bash
-python tools/train.py config_hsfpn\cascade_rcnn_r50_aitod.py
+python tools/train.py config_hsfpn/cascade_rcnn_r50_aitod.py
 ```
 <br>
 
