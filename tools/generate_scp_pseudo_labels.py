@@ -59,7 +59,17 @@ def parse_args():
         description='Generate pseudo-labels for SCP distillation.')
     parser.add_argument('--img-dir', required=True, help='Training image dir.')
     parser.add_argument(
-        '--output-dir', required=True, help='Output dir for .npz labels.')
+        '--output-dir',
+        default=None,
+        help='Output dir for .npz labels when generating one label space.')
+    parser.add_argument(
+        '--coarse-output-dir',
+        default=None,
+        help='Output dir for 8-class labels when --label-space=both.')
+    parser.add_argument(
+        '--ade20k-output-dir',
+        default=None,
+        help='Output dir for 150-class ADE20K labels when --label-space=both.')
     parser.add_argument(
         '--model-name',
         default='nvidia/segformer-b5-finetuned-ade-640-640',
@@ -79,16 +89,31 @@ def parse_args():
     parser.add_argument('--device', default='cuda:0')
     parser.add_argument(
         '--label-space',
-        choices=('coarse8', 'ade20k'),
+        choices=('coarse8', 'ade20k', 'both'),
         default='coarse8',
         help=('Pseudo-label category space. "coarse8" keeps the original V1 '
               '8-class mapping; "ade20k" saves raw SegFormer/ADE20K '
-              '0..149 class ids for SCPV2 K-class training.'))
+              '0..149 class ids for SCPV2 K-class training. "both" runs '
+              'the teacher once and writes both outputs.'))
+    parser.add_argument(
+        '--batch-size',
+        type=int,
+        default=1,
+        help='Number of images per SegFormer forward pass.')
     parser.add_argument(
         '--save-confidence',
         action='store_true',
         help='Save the teacher max-softmax confidence map into each .npz.')
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.batch_size < 1:
+        parser.error('--batch-size must be >= 1.')
+    if args.label_space == 'both':
+        if args.coarse_output_dir is None or args.ade20k_output_dir is None:
+            parser.error('--label-space=both requires --coarse-output-dir and '
+                         '--ade20k-output-dir.')
+    elif args.output_dir is None:
+        parser.error('--output-dir is required unless --label-space=both.')
+    return args
 
 
 def load_segformer(args):
@@ -140,7 +165,13 @@ def load_segformer(args):
 
 def main():
     args = parse_args()
-    os.makedirs(args.output_dir, exist_ok=True)
+    output_dirs = {}
+    if args.label_space in ('coarse8', 'both'):
+        output_dirs['coarse8'] = Path(args.coarse_output_dir or args.output_dir)
+    if args.label_space in ('ade20k', 'both'):
+        output_dirs['ade20k'] = Path(args.ade20k_output_dir or args.output_dir)
+    for output_dir in output_dirs.values():
+        output_dir.mkdir(parents=True, exist_ok=True)
 
     processor, model = load_segformer(args)
     model.to(args.device).eval()
@@ -151,43 +182,74 @@ def main():
         if p.suffix.lower() in image_suffixes)
 
     skipped = 0
-    for image_path in tqdm(image_paths, desc='Generating SCP labels'):
-        output_path = Path(args.output_dir) / f'{image_path.stem}.npz'
-        if output_path.exists():
+    pending_paths = []
+    for image_path in image_paths:
+        expected_paths = [
+            output_dir / f'{image_path.stem}.npz'
+            for output_dir in output_dirs.values()
+        ]
+        if all(path.exists() for path in expected_paths):
             skipped += 1
             continue
+        pending_paths.append(image_path)
 
-        image = Image.open(image_path).convert('RGB')
-        ori_w, ori_h = image.size
-        inputs = processor(images=image, return_tensors='pt')
+    for start in tqdm(
+            range(0, len(pending_paths), args.batch_size),
+            desc='Generating SCP labels'):
+        batch_paths = pending_paths[start:start + args.batch_size]
+        images = []
+        original_sizes = []
+        for image_path in batch_paths:
+            image = Image.open(image_path).convert('RGB')
+            ori_w, ori_h = image.size
+            images.append(image)
+            original_sizes.append((ori_h, ori_w))
+
+        inputs = processor(images=images, return_tensors='pt')
         inputs = {key: value.to(args.device) for key, value in inputs.items()}
 
         with torch.no_grad():
-            logits = model(**inputs).logits
+            batch_logits = model(**inputs).logits
+
+        for idx, image_path in enumerate(batch_paths):
+            logits = batch_logits[idx:idx + 1]
+            ori_h, ori_w = original_sizes[idx]
             logits = F.interpolate(
                 logits,
                 size=(ori_h, ori_w),
                 mode='bilinear',
                 align_corners=False)
 
-        probs = None
-        if args.save_confidence:
-            probs = logits.softmax(dim=1).amax(dim=1).squeeze(0).cpu().numpy()
-            probs = probs.astype(np.float16, copy=False)
+            probs = None
+            if args.save_confidence:
+                probs = logits.softmax(dim=1).amax(
+                    dim=1).squeeze(0).cpu().numpy()
+                probs = probs.astype(np.float16, copy=False)
 
-        pred = logits.argmax(dim=1).squeeze(0).cpu().numpy()
-        if args.label_space == 'coarse8':
-            label = map_ade20k_to_coarse(pred)
-        else:
-            label = pred.astype(np.int32, copy=False)
+            pred = logits.argmax(dim=1).squeeze(0).cpu().numpy()
+            if 'coarse8' in output_dirs:
+                output_path = output_dirs['coarse8'] / f'{image_path.stem}.npz'
+                if not output_path.exists():
+                    label = map_ade20k_to_coarse(pred)
+                    if probs is None:
+                        np.savez_compressed(output_path, label=label)
+                    else:
+                        np.savez_compressed(
+                            output_path, label=label, confidence=probs)
+            if 'ade20k' in output_dirs:
+                output_path = output_dirs['ade20k'] / f'{image_path.stem}.npz'
+                if not output_path.exists():
+                    label = pred.astype(np.int32, copy=False)
+                    if probs is None:
+                        np.savez_compressed(output_path, label=label)
+                    else:
+                        np.savez_compressed(
+                            output_path, label=label, confidence=probs)
 
-        if probs is None:
-            np.savez_compressed(output_path, label=label)
-        else:
-            np.savez_compressed(output_path, label=label, confidence=probs)
-
-    print(f'Done. Generated {len(image_paths) - skipped}, skipped {skipped}.')
+    print(f'Done. Generated {len(pending_paths)}, skipped {skipped}.')
     print(f'Label space: {args.label_space}.')
+    for name, output_dir in output_dirs.items():
+        print(f'{name} output dir: {output_dir}')
 
 
 if __name__ == '__main__':

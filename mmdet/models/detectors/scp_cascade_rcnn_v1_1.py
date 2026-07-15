@@ -45,9 +45,11 @@ class SCPCascadeRCNNV1_1(CascadeRCNN):
         self.scp_loss_weight_max = scp_distill_loss.get(
             'loss_weight_max', 0.5)
         self.scp_total_epochs = scp_distill_loss.get('total_epochs', 12)
+        self.scp_level_weights = scp_distill_loss.get('level_weights', None)
 
         gate_loss = gate_loss or {}
         self.gate_loss_weight = gate_loss.get('loss_weight', 0.1)
+        self.gate_level_weights = gate_loss.get('level_weights', None)
         self.gate_eps = gate_loss.get('eps', 1e-6)
         self.current_epoch = 0
 
@@ -190,7 +192,7 @@ class SCPCascadeRCNNV1_1(CascadeRCNN):
 
         if not losses:
             return None
-        return sum(losses) * (lam / len(losses))
+        return lam * self._weighted_level_mean(losses, self.scp_level_weights)
 
     def _loss_gate_dice(self, gate_maps: Optional[list],
                         batch_data_samples: SampleList,
@@ -213,7 +215,29 @@ class SCPCascadeRCNNV1_1(CascadeRCNN):
                 denominator + self.gate_eps)
             losses.append(1 - dice.mean())
 
-        return self.gate_loss_weight * sum(losses) / len(losses)
+        return self.gate_loss_weight * self._weighted_level_mean(
+            losses, self.gate_level_weights)
+
+    @staticmethod
+    def _weighted_level_mean(losses: list,
+                             level_weights: Optional[list]) -> Tensor:
+        if level_weights is None:
+            return sum(losses) / len(losses)
+
+        values = [float(weight) for weight in level_weights]
+        if not values:
+            return sum(losses) / len(losses)
+        if len(values) < len(losses):
+            values.extend([values[-1]] * (len(losses) - len(values)))
+        elif len(values) > len(losses):
+            values = values[:len(losses)]
+
+        weights = losses[0].new_tensor(values).clamp_min(0.0)
+        weight_sum = weights.sum().clamp_min(1e-6)
+        weighted = [
+            loss * weights[idx] for idx, loss in enumerate(losses)
+        ]
+        return sum(weighted) / weight_sum
 
     def _build_gate_target(self, gate: Tensor, batch_data_samples: SampleList,
                            batch_inputs: Tensor) -> Tensor:
