@@ -10,6 +10,9 @@ from .fpn import FPN
 from .fpn_carafe import FPN_CARAFE
 from .fpn_dropblock import FPN_DropBlock
 from .hrfpn import HRFPN
+from .hs_fpn import HS_FPN
+from .hs_scp_fpn import HS_SCP_FPN
+from .hs_scpv2_fpn import HS_SCPV2_FPN
 from .nas_fpn import NASFPN
 from .nasfcos_fpn import NASFCOS_FPN
 from .pafpn import PAFPN
@@ -23,5 +26,5 @@ __all__ = [
     'FPN', 'BFP', 'ChannelMapper', 'HRFPN', 'NASFPN', 'FPN_CARAFE', 'PAFPN',
     'NASFCOS_FPN', 'RFP', 'YOLOV3Neck', 'FPG', 'DilatedEncoder',
     'CTResNetNeck', 'SSDNeck', 'YOLOXPAFPN', 'DyHead', 'CSPNeXtPAFPN', 'SSH',
-    'FPN_DropBlock'
+    'FPN_DropBlock', 'HS_FPN', 'HS_SCP_FPN', 'HS_SCPV2_FPN'
 ]

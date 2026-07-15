@@ -481,8 +481,8 @@ class BaseDenseHead(BaseModule, metaclass=ABCMeta):
 
         # TODO: deal with `with_nms` and `nms_cfg=None` in test_cfg
         if with_nms and results.bboxes.numel() > 0:
-            bboxes = get_box_tensor(results.bboxes)
-            det_bboxes, keep_idxs = batched_nms(bboxes, results.scores,
+            bboxes = get_box_tensor(results.bboxes).float()
+            det_bboxes, keep_idxs = batched_nms(bboxes, results.scores.float(),
                                                 results.labels, cfg.nms)
             results = results[keep_idxs]
             # some nms would reweight the score, such as softnms
@@ -560,7 +560,8 @@ class BaseDenseHead(BaseModule, metaclass=ABCMeta):
         final_results = []
         for img_id in range(num_imgs):
             results = batch_results[img_id]
-            det_bboxes, keep_idxs = batched_nms(results.bboxes, results.scores,
+            det_bboxes, keep_idxs = batched_nms(results.bboxes.float(),
+                                                results.scores.float(),
                                                 results.labels,
                                                 self.test_cfg.nms)
             results = results[keep_idxs]

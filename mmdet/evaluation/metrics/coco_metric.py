@@ -37,10 +37,10 @@ class CocoMetric(BaseMetric):
         classwise (bool): Whether to evaluate the metric class-wise.
             Defaults to False.
         proposal_nums (Sequence[int]): Numbers of proposals to be evaluated.
-            Defaults to (100, 300, 1000).
+            Defaults to (1, 100, 1500).
         iou_thrs (float | List[float], optional): IoU threshold to compute AP
-            and AR. If not specified, IoUs from 0.5 to 0.95 will be used.
-            Defaults to None.
+            and AR. If not specified, IoU 0.25 and IoUs from 0.5 to 0.95
+            will be used for AI-TOD metrics. Defaults to None.
         metric_items (List[str], optional): Metric result names to be
             recorded in the evaluation result. Defaults to None.
         format_only (bool): Format the output results without perform
@@ -71,7 +71,7 @@ class CocoMetric(BaseMetric):
                  ann_file: Optional[str] = None,
                  metric: Union[str, List[str]] = 'bbox',
                  classwise: bool = False,
-                 proposal_nums: Sequence[int] = (100, 300, 1000),
+                 proposal_nums: Sequence[int] = (1, 100, 1500),
                  iou_thrs: Optional[Union[float, Sequence[float]]] = None,
                  metric_items: Optional[Sequence[str]] = None,
                  format_only: bool = False,
@@ -98,12 +98,16 @@ class CocoMetric(BaseMetric):
         self.use_mp_eval = use_mp_eval
 
         # proposal_nums used to compute recall or precision.
-        self.proposal_nums = list(proposal_nums)
+        self.proposal_nums = sorted(proposal_nums)
+        if len(self.proposal_nums) != 3:
+            raise ValueError('cocoapi-aitod requires exactly three '
+                             'proposal_nums, e.g. (1, 100, 1500).')
 
         # iou_thrs used to compute recall or precision.
         if iou_thrs is None:
-            iou_thrs = np.linspace(
-                .5, 0.95, int(np.round((0.95 - .5) / .05)) + 1, endpoint=True)
+            iou_thrs = np.array([.25] + np.linspace(
+                .5, 0.95, int(np.round((0.95 - .5) / .05)) + 1,
+                endpoint=True).tolist())
         self.iou_thrs = iou_thrs
         self.metric_items = metric_items
         self.format_only = format_only
@@ -476,21 +480,34 @@ class CocoMetric(BaseMetric):
             coco_eval.params.maxDets = list(self.proposal_nums)
             coco_eval.params.iouThrs = self.iou_thrs
 
-            # mapping of cocoEval.stats
+            max_det = self.proposal_nums[-1]
+            # mapping of aitod COCOeval.stats
             coco_metric_names = {
                 'mAP': 0,
-                'mAP_50': 1,
-                'mAP_75': 2,
-                'mAP_s': 3,
-                'mAP_m': 4,
-                'mAP_l': 5,
-                'AR@100': 6,
-                'AR@300': 7,
-                'AR@1000': 8,
-                'AR_s@1000': 9,
-                'AR_m@1000': 10,
-                'AR_l@1000': 11
+                'mAP_25': 1,
+                'mAP_50': 2,
+                'mAP_75': 3,
+                'mAP_vt': 4,
+                'mAP_verytiny': 4,
+                'mAP_t': 5,
+                'mAP_tiny': 5,
+                'mAP_s': 6,
+                'mAP_m': 7,
+                'oLRP': 15,
+                'oLRP_loc': 16,
+                'oLRP_fp': 17,
+                'oLRP_fn': 18,
             }
+            for idx, num in enumerate(self.proposal_nums):
+                coco_metric_names[f'AR@{num}'] = 8 + idx
+            coco_metric_names.update({
+                f'AR_vt@{max_det}': 11,
+                f'AR_verytiny@{max_det}': 11,
+                f'AR_t@{max_det}': 12,
+                f'AR_tiny@{max_det}': 12,
+                f'AR_s@{max_det}': 13,
+                f'AR_m@{max_det}': 14,
+            })
             metric_items = self.metric_items
             if metric_items is not None:
                 for metric_item in metric_items:
@@ -504,9 +521,10 @@ class CocoMetric(BaseMetric):
                 coco_eval.accumulate()
                 coco_eval.summarize()
                 if metric_items is None:
-                    metric_items = [
-                        'AR@100', 'AR@300', 'AR@1000', 'AR_s@1000',
-                        'AR_m@1000', 'AR_l@1000'
+                    metric_items = [f'AR@{num}' for num in self.proposal_nums]
+                    metric_items += [
+                        f'AR_vt@{max_det}', f'AR_t@{max_det}',
+                        f'AR_s@{max_det}', f'AR_m@{max_det}'
                     ]
 
                 for item in metric_items:
@@ -525,12 +543,14 @@ class CocoMetric(BaseMetric):
                     assert len(self.cat_ids) == precisions.shape[2]
 
                     results_per_category = []
+                    valid_iou = np.where(coco_eval.params.iouThrs >= .5)[0]
+                    valid_iou = valid_iou if len(valid_iou) else slice(None)
                     for idx, cat_id in enumerate(self.cat_ids):
                         t = []
                         # area range index 0: all area ranges
                         # max dets index -1: typically 100 per image
                         nm = self._coco_api.loadCats(cat_id)[0]
-                        precision = precisions[:, :, idx, 0, -1]
+                        precision = precisions[valid_iou, :, idx, 0, -1]
                         precision = precision[precision > -1]
                         if precision.size:
                             ap = np.mean(precision)
@@ -540,9 +560,15 @@ class CocoMetric(BaseMetric):
                         t.append(f'{round(ap, 3)}')
                         eval_results[f'{nm["name"]}_precision'] = round(ap, 3)
 
-                        # indexes of IoU  @50 and @75
-                        for iou in [0, 5]:
-                            precision = precisions[iou, :, idx, 0, -1]
+                        # indexes of IoU @25, @50 and @75
+                        for iou_thr in [.25, .5, .75]:
+                            iou = np.where(
+                                np.isclose(coco_eval.params.iouThrs,
+                                           iou_thr))[0]
+                            if len(iou) == 0:
+                                t.append('nan')
+                                continue
+                            precision = precisions[iou[0], :, idx, 0, -1]
                             precision = precision[precision > -1]
                             if precision.size:
                                 ap = np.mean(precision)
@@ -550,9 +576,10 @@ class CocoMetric(BaseMetric):
                                 ap = float('nan')
                             t.append(f'{round(ap, 3)}')
 
-                        # indexes of area of small, median and large
-                        for area in [1, 2, 3]:
-                            precision = precisions[:, :, idx, area, -1]
+                        # indexes of area of verytiny, tiny, small and medium
+                        for area in [1, 2, 3, 4]:
+                            precision = precisions[valid_iou, :, idx, area,
+                                                   -1]
                             precision = precision[precision > -1]
                             if precision.size:
                                 ap = np.mean(precision)
@@ -565,8 +592,8 @@ class CocoMetric(BaseMetric):
                     results_flatten = list(
                         itertools.chain(*results_per_category))
                     headers = [
-                        'category', 'mAP', 'mAP_50', 'mAP_75', 'mAP_s',
-                        'mAP_m', 'mAP_l'
+                        'category', 'mAP', 'mAP_25', 'mAP_50', 'mAP_75',
+                        'mAP_vt', 'mAP_t', 'mAP_s', 'mAP_m'
                     ]
                     results_2d = itertools.zip_longest(*[
                         results_flatten[i::num_columns]
@@ -579,7 +606,9 @@ class CocoMetric(BaseMetric):
 
                 if metric_items is None:
                     metric_items = [
-                        'mAP', 'mAP_50', 'mAP_75', 'mAP_s', 'mAP_m', 'mAP_l'
+                        'mAP', 'mAP_25', 'mAP_50', 'mAP_75', 'mAP_vt',
+                        'mAP_t', 'mAP_s', 'mAP_m', 'oLRP', 'oLRP_loc',
+                        'oLRP_fp', 'oLRP_fn'
                     ]
 
                 for metric_item in metric_items:
@@ -587,10 +616,11 @@ class CocoMetric(BaseMetric):
                     val = coco_eval.stats[coco_metric_names[metric_item]]
                     eval_results[key] = float(f'{round(val, 3)}')
 
-                ap = coco_eval.stats[:6]
+                ap = coco_eval.stats[:8]
                 logger.info(f'{metric}_mAP_copypaste: {ap[0]:.3f} '
                             f'{ap[1]:.3f} {ap[2]:.3f} {ap[3]:.3f} '
-                            f'{ap[4]:.3f} {ap[5]:.3f}')
+                            f'{ap[4]:.3f} {ap[5]:.3f} {ap[6]:.3f} '
+                            f'{ap[7]:.3f}')
 
         if tmp_dir is not None:
             tmp_dir.cleanup()
