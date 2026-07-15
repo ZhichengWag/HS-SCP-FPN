@@ -3,6 +3,8 @@
 # This keeps the SCPV1-5 detector/neck and adds RFLA's receptive-field anchor
 # generator plus hierarchical KLD label assignment for the RPN.
 
+_base_ = ['./cascade_rcnn_r50_aitod_scpv1_5.py']
+
 import os
 import sys
 
@@ -24,8 +26,6 @@ def _add_repo_root_to_sys_path():
 _add_repo_root_to_sys_path()
 del _add_repo_root_to_sys_path
 
-_base_ = ['./cascade_rcnn_r50_aitod_scpv1_5.py']
-
 custom_imports = dict(
     imports=[
         'mmdet.datasets.aitod',
@@ -38,7 +38,7 @@ custom_imports = dict(
     ],
     allow_failed_imports=False)
 
-data_root = os.getenv('AITOD_DATA_ROOT', '/mnt/e/AI-TOD/')
+data_root = os.getenv('AITOD_DATA_ROOT', '/home/zhicheng/SCP/data/AITOD/')
 pseudo_label_root = os.getenv(
     'SCP_PSEUDO_LABEL_ROOT',
     data_root + 'pseudo_labels_ade20k/trainval')

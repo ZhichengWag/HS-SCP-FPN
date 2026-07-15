@@ -4,6 +4,8 @@
 
 _base_ = ['../mmdetection/configs/_base_/default_runtime.py']
 
+import os
+
 custom_imports = dict(
     imports=['mmdet.datasets.aitod', 'mmdet.models', 'mmdet.models.necks.hs_fpn'],
     allow_failed_imports=False)
@@ -101,7 +103,7 @@ model = {'type': 'FasterRCNN',
                        'pad_size_divisor': 32}}
 
 dataset_type = 'AITODDataset'
-data_root = '/mnt/e/AI-TOD/'
+data_root = os.getenv('AITOD_DATA_ROOT', '/home/zhicheng/SCP/data/AITOD/')
 backend_args = None
 aitod_metainfo = dict(classes=('airplane',
  'bridge',

@@ -1,8 +1,9 @@
-# HS-FPN + SCPV1-2 foreground-gated DCN residual refinement config.
+# HS-FPN + SCPV1-7 config.
 #
-# This config mirrors SCPV1-1 and only swaps the neck implementation.  The
-# detector/loss wrapper is reused because V1-2 keeps the same semantic logits
-# and gate maps interface.
+# V1.7 keeps V1.5's position-aware deformable SCP fusion on P1-P4.
+# Auxiliary losses use per-level weights in neck output order [P4, P3, P2, P1],
+# with stronger supervision on high-frequency P1/P2.  The gate branch does not
+# detach HFP features, so gate loss can update the HFP branch.
 
 _base_ = ['./cascade_rcnn_r50_aitod.py']
 
@@ -12,7 +13,7 @@ custom_imports = dict(
     imports=[
         'mmdet.datasets.aitod',
         'mmdet.models',
-        'mmdet.models.necks.hs_scpv1_2_fpn',
+        'mmdet.models.necks.hs_scpv1_7_fpn',
         'mmdet.models.detectors.scp_cascade_rcnn_v1_1',
         'mmdet.datasets.transforms.load_scp_pseudo_labels',
         'mmdet.engine.hooks.set_epoch_info_hook',
@@ -22,22 +23,26 @@ custom_imports = dict(
 data_root = os.getenv('AITOD_DATA_ROOT', '/home/zhicheng/SCP/data/AITOD/')
 backend_args = None
 
-pseudo_label_num_classes = int(os.getenv('SCP_PSEUDO_LABEL_NUM_CLASSES', '8'))
+pseudo_label_num_classes = int(os.getenv('SCP_PSEUDO_LABEL_NUM_CLASSES', '150'))
 pseudo_label_root = os.getenv(
     'SCP_PSEUDO_LABEL_ROOT',
-    data_root + 'pseudo_labels/trainval')
+    data_root + 'pseudo_labels_ade20k/trainval')
 
 model = dict(
     type='SCPCascadeRCNNV1_1',
     neck=dict(
         _delete_=True,
-        type='HS_SCPV1_2_FPN',
+        type='HS_SCPV1_7_FPN',
         in_channels=[256, 512, 1024, 2048],
         out_channels=256,
         num_outs=5,
         ratio=(0.25, 0.25),
         num_semantic_classes=pseudo_label_num_classes,
         scp_attn_dim=64,
+        scp_deform_points=9,
+        scp_pos_dim=32,
+        scp_pos_temperature=10000.0,
+        scp_invalid_sample_mask=True,
         scp_use_dct_lowpass=False,
         gate_init_bias=-2.0,
         return_semantic_logits=True),
@@ -45,10 +50,12 @@ model = dict(
     scp_distill_loss=dict(
         num_classes=pseudo_label_num_classes,
         loss_weight_max=0.5,
+        level_weights=[0.25, 0.25, 1.0, 1.0],
         ignore_index=255,
         total_epochs=12),
     gate_loss=dict(
         loss_weight=0.1,
+        level_weights=[0.25, 0.25, 1.0, 1.0],
         eps=1e-6))
 
 train_pipeline = [
@@ -76,7 +83,7 @@ optim_wrapper = dict(
 train_cfg = dict(type='EpochBasedTrainLoop', max_epochs=12, val_interval=12)
 
 param_scheduler = [
-    dict(type='LinearLR', start_factor=0.001, by_epoch=False, begin=0, end=500),
+    dict(type='LinearLR', start_factor=0.001, by_epoch=False, begin=0, end=5000),
     dict(
         type='MultiStepLR',
         begin=0,
@@ -88,4 +95,6 @@ param_scheduler = [
 
 custom_hooks = [dict(type='SetEpochInfoHook'), dict(type='NumClassCheckHook')]
 
-work_dir = '/mnt/e/mmdet5090/work_dirs/cascade_rcnn_r50_aitod_scpv1_2_b1_k8_epoch12'
+randomness = dict(seed=3407, deterministic=False)
+
+work_dir = './work_dirs/cascade_rcnn_r50_aitod_scpv1_7_b1_k150_t10000_warmup5000_weighted_gatehfp_epoch12'

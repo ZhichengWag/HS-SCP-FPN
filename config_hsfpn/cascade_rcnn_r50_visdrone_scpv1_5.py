@@ -1,109 +1,57 @@
-# HS-FPN + SCPV1-5 config for VisDrone2019-DET.
+# HS-SCPV1-5 on VisDrone2019-DET with ADE20K 150-class pseudo labels.
 #
-# Expected prepared layout:
-#   /mnt/e/<dataset-dir>/VisDrone2019/
-#     VisDrone2019-DET-train/images/*.jpg
-#     VisDrone2019-DET-val/images/*.jpg
-#     annotations/visdrone2019_det_train_coco.json
-#     annotations/visdrone2019_det_val_coco.json
-#     pseudo_labels_ade20k/train/*.npz
-#
-# The official VisDrone DET zip files contain txt annotations. Convert them to
-# COCO JSON before training, or override VISDRONE_TRAIN_ANN/VISDRONE_VAL_ANN.
+# Uses train for training and val for both validation and testing. The
+# test-challenge split is intentionally not used.
+
+_base_ = ['./cascade_rcnn_r50_visdrone.py']
 
 import os
 
-_base_ = ['./cascade_rcnn_r50_aitod_scpv1_5.py']
+custom_imports = dict(
+    imports=[
+        'mmdet.datasets.aitod',
+        'mmdet.models',
+        'mmdet.models.necks.hs_fpn',
+        'mmdet.models.necks.hs_scpv1_5_fpn',
+        'mmdet.models.detectors.scp_cascade_rcnn_v1_1',
+        'mmdet.datasets.transforms.load_scp_pseudo_labels',
+        'mmdet.engine.hooks.set_epoch_info_hook',
+    ],
+    allow_failed_imports=False)
 
 data_root = os.getenv('VISDRONE_DATA_ROOT',
-                      '/mnt/e/\u6570\u636e\u96c6/VisDrone2019/')
-train_ann_file = os.getenv('VISDRONE_TRAIN_ANN',
-                           'annotations/visdrone2019_det_train_coco.json')
-val_ann_file = os.getenv('VISDRONE_VAL_ANN',
-                         'annotations/visdrone2019_det_val_coco.json')
-
-train_img_prefix = os.getenv('VISDRONE_TRAIN_IMG_PREFIX',
-                             'VisDrone2019-DET-train/images')
-val_img_prefix = os.getenv('VISDRONE_VAL_IMG_PREFIX',
-                           'VisDrone2019-DET-val/images')
-
-pseudo_label_num_classes = int(os.getenv('SCP_PSEUDO_LABEL_NUM_CLASSES',
-                                         '150'))
+                      '/home/zhicheng/SCP/data/VisDrone2019_DET/')
+backend_args = None
+pseudo_label_num_classes = int(os.getenv('SCP_PSEUDO_LABEL_NUM_CLASSES', '150'))
 pseudo_label_root = os.getenv(
     'SCP_PSEUDO_LABEL_ROOT',
-    os.path.join(data_root, 'pseudo_labels_ade20k', 'train'))
-
-dataset_type = 'CocoDataset'
-backend_args = None
-
-visdrone_metainfo = dict(
-    classes=('pedestrian', 'people', 'bicycle', 'car', 'van', 'truck',
-             'tricycle', 'awning-tricycle', 'bus', 'motor'),
-    palette=[(220, 20, 60), (0, 128, 255), (119, 11, 32), (0, 0, 142),
-             (0, 0, 230), (106, 0, 228), (0, 60, 100), (0, 80, 100),
-             (0, 0, 70), (250, 170, 30)])
+    data_root + 'pseudo_labels_ade20k/train')
 
 model = dict(
-    roi_head=dict(
-        bbox_head=[
-            dict(
-                type='Shared2FCBBoxHead',
-                in_channels=256,
-                fc_out_channels=1024,
-                roi_feat_size=7,
-                num_classes=10,
-                bbox_coder=dict(
-                    type='DeltaXYWHBBoxCoder',
-                    target_means=[0.0, 0.0, 0.0, 0.0],
-                    target_stds=[0.1, 0.1, 0.2, 0.2]),
-                reg_class_agnostic=True,
-                loss_cls=dict(
-                    type='CrossEntropyLoss',
-                    use_sigmoid=False,
-                    loss_weight=1.0),
-                loss_bbox=dict(
-                    type='SmoothL1Loss', beta=1.0, loss_weight=1.0)),
-            dict(
-                type='Shared2FCBBoxHead',
-                in_channels=256,
-                fc_out_channels=1024,
-                roi_feat_size=7,
-                num_classes=10,
-                bbox_coder=dict(
-                    type='DeltaXYWHBBoxCoder',
-                    target_means=[0.0, 0.0, 0.0, 0.0],
-                    target_stds=[0.05, 0.05, 0.1, 0.1]),
-                reg_class_agnostic=True,
-                loss_cls=dict(
-                    type='CrossEntropyLoss',
-                    use_sigmoid=False,
-                    loss_weight=1.0),
-                loss_bbox=dict(
-                    type='SmoothL1Loss', beta=1.0, loss_weight=1.0)),
-            dict(
-                type='Shared2FCBBoxHead',
-                in_channels=256,
-                fc_out_channels=1024,
-                roi_feat_size=7,
-                num_classes=10,
-                bbox_coder=dict(
-                    type='DeltaXYWHBBoxCoder',
-                    target_means=[0.0, 0.0, 0.0, 0.0],
-                    target_stds=[0.033, 0.033, 0.067, 0.067]),
-                reg_class_agnostic=True,
-                loss_cls=dict(
-                    type='CrossEntropyLoss',
-                    use_sigmoid=False,
-                    loss_weight=1.0),
-                loss_bbox=dict(
-                    type='SmoothL1Loss', beta=1.0, loss_weight=1.0)),
-        ]),
-    neck=dict(num_semantic_classes=pseudo_label_num_classes),
+    type='SCPCascadeRCNNV1_1',
+    neck=dict(
+        _delete_=True,
+        type='HS_SCPV1_5_FPN',
+        in_channels=[256, 512, 1024, 2048],
+        out_channels=256,
+        num_outs=5,
+        ratio=(0.25, 0.25),
+        num_semantic_classes=pseudo_label_num_classes,
+        scp_attn_dim=64,
+        scp_deform_points=9,
+        scp_pos_dim=32,
+        scp_pos_temperature=10000.0,
+        scp_invalid_sample_mask=True,
+        scp_use_dct_lowpass=False,
+        gate_init_bias=-2.0,
+        return_semantic_logits=True),
+    data_preprocessor=dict(pad_seg=True, seg_pad_value=255),
     scp_distill_loss=dict(
         num_classes=pseudo_label_num_classes,
         loss_weight_max=0.5,
         ignore_index=255,
-        total_epochs=12))
+        total_epochs=12),
+    gate_loss=dict(loss_weight=0.1, eps=1e-6))
 
 train_pipeline = [
     dict(type='LoadImageFromFile', backend_args=backend_args),
@@ -119,49 +67,29 @@ train_pipeline = [
     dict(type='PackDetInputs'),
 ]
 
-test_pipeline = [
-    dict(type='LoadImageFromFile', backend_args=backend_args),
-    dict(type='Resize', scale=(1333, 800), keep_ratio=True),
-    dict(type='LoadAnnotations', with_bbox=True),
+train_dataloader = dict(
+    batch_size=1,
+    dataset=dict(pipeline=train_pipeline))
+
+optim_wrapper = dict(
+    accumulative_counts=1,
+    optimizer=dict(lr=0.005))
+
+train_cfg = dict(type='EpochBasedTrainLoop', max_epochs=12, val_interval=12)
+
+param_scheduler = [
+    dict(type='LinearLR', start_factor=0.001, by_epoch=False, begin=0, end=500),
     dict(
-        type='PackDetInputs',
-        meta_keys=('img_id', 'img_path', 'ori_shape', 'img_shape',
-                   'scale_factor')),
+        type='MultiStepLR',
+        begin=0,
+        end=12,
+        by_epoch=True,
+        milestones=[8, 11],
+        gamma=0.1),
 ]
 
-train_dataloader = dict(
-    batch_size=2,
-    dataset=dict(
-        type=dataset_type,
-        data_root=data_root,
-        ann_file=train_ann_file,
-        data_prefix=dict(img=train_img_prefix),
-        metainfo=visdrone_metainfo,
-        filter_cfg=dict(filter_empty_gt=True, min_size=1),
-        pipeline=train_pipeline,
-        backend_args=backend_args))
+custom_hooks = [dict(type='SetEpochInfoHook'), dict(type='NumClassCheckHook')]
 
-val_dataloader = dict(
-    batch_size=1,
-    dataset=dict(
-        type=dataset_type,
-        data_root=data_root,
-        ann_file=val_ann_file,
-        data_prefix=dict(img=val_img_prefix),
-        metainfo=visdrone_metainfo,
-        test_mode=True,
-        pipeline=test_pipeline,
-        backend_args=backend_args))
-test_dataloader = val_dataloader
+randomness = dict(seed=3407, deterministic=False)
 
-val_evaluator = dict(
-    type='CocoMetric',
-    ann_file=os.path.join(data_root, val_ann_file),
-    metric='bbox',
-    format_only=False,
-    backend_args=backend_args)
-test_evaluator = val_evaluator
-
-work_dir = (
-    '/mnt/e/mmdet5090/work_dirs/'
-    'cascade_rcnn_r50_visdrone_scpv1_5_b2_k150_epoch12')
+work_dir = '/home/zhicheng/SCP/work_dirs/cascade_rcnn_r50_visdrone_scpv1_5'

@@ -8,6 +8,8 @@
 
 _base_ = ['../mmdetection/configs/_base_/default_runtime.py']
 
+import os
+
 custom_imports = dict(
     imports=['mmdet.datasets.aitod', 'mmdet.models', 'mmdet.models.necks.hs_fpn'],
     allow_failed_imports=False)
@@ -191,7 +193,7 @@ model = {'type': 'CascadeRCNN',
                        'pad_size_divisor': 32}}
 
 dataset_type = 'AITODDataset'
-data_root = ''
+data_root = os.getenv('AITOD_DATA_ROOT', '/home/zhicheng/SCP/data/AITOD/')
 backend_args = None
 aitod_metainfo = dict(classes=('airplane',
  'bridge',
@@ -232,8 +234,8 @@ train_dataloader = {'batch_size': 1,
  'batch_sampler': {'type': 'AspectRatioBatchSampler'},
  'dataset': {'type': dataset_type,
              'data_root': data_root,
-             'ann_file': 'AI-TOD/annotations/aitod_trainval_v1.json',
-             'data_prefix': {'img': 'AI-TOD/trainval/images'},
+             'ann_file': 'annotations/aitod_trainval_v1.json',
+             'data_prefix': {'img': 'trainval/images'},
              'metainfo': aitod_metainfo,
              'filter_cfg': {'filter_empty_gt': True, 'min_size': 1},
              'pipeline': train_pipeline,
@@ -246,8 +248,8 @@ val_dataloader = {'batch_size': 1,
  'sampler': {'type': 'DefaultSampler', 'shuffle': False},
  'dataset': {'type': dataset_type,
              'data_root': data_root,
-             'ann_file': 'AI-TOD/annotations/aitod_test_v1.json',
-             'data_prefix': {'img': 'AI-TOD/test/images'},
+             'ann_file': 'annotations/aitod_test_v1.json',
+             'data_prefix': {'img': 'test/images'},
              'metainfo': aitod_metainfo,
              'test_mode': True,
              'pipeline': test_pipeline,
@@ -255,7 +257,7 @@ val_dataloader = {'batch_size': 1,
 test_dataloader = val_dataloader
 
 val_evaluator = {'type': 'CocoMetric',
- 'ann_file': 'AI-TOD/annotations/aitod_test_v1.json',
+ 'ann_file': data_root + 'annotations/aitod_test_v1.json',
  'metric': 'bbox',
  'format_only': False,
  'backend_args': backend_args}

@@ -4,9 +4,9 @@
 # detector/loss wrapper is reused because V1-5 keeps the same semantic logits
 # and gate maps interface.
 
-import os
-
 _base_ = ['./cascade_rcnn_r50_aitod.py']
+
+import os
 
 custom_imports = dict(
     imports=[
@@ -19,7 +19,7 @@ custom_imports = dict(
     ],
     allow_failed_imports=False)
 
-data_root = os.getenv('AITOD_DATA_ROOT', '/mnt/e/AI-TOD/')
+data_root = os.getenv('AITOD_DATA_ROOT', '/home/zhicheng/SCP/data/AITOD/')
 backend_args = None
 
 pseudo_label_num_classes = int(os.getenv('SCP_PSEUDO_LABEL_NUM_CLASSES', '150'))
@@ -52,7 +52,7 @@ model = dict(
         ignore_index=255,
         total_epochs=12),
     gate_loss=dict(
-        loss_weight=0.1,
+        loss_weight=0.6,
         eps=1e-6))
 
 train_pipeline = [
@@ -70,7 +70,7 @@ train_pipeline = [
 ]
 
 train_dataloader = dict(
-    batch_size=2,
+    batch_size=1,
     dataset=dict(pipeline=train_pipeline))
 
 optim_wrapper = dict(
@@ -94,4 +94,4 @@ custom_hooks = [dict(type='SetEpochInfoHook'), dict(type='NumClassCheckHook')]
 
 randomness = dict(seed=3407, deterministic=False)
 
-work_dir = '/mnt/e/mmdet5090/work_dirs/cascade_rcnn_r50_aitod_scpv1_5_b2_k150_t10000_epoch12'
+work_dir = './work_dirs/cascade_rcnn_r50_aitod_scpv1_5_b2_k150_t10000_gate0.6_epoch12'

@@ -3,9 +3,9 @@
 # This config inherits the tested HS-FPN setup and only overrides the parts
 # needed by SCP, so comparison with cascade_rcnn_r50_aitod.py stays clean.
 
-import os
-
 _base_ = ['./cascade_rcnn_r50_aitod.py']
+
+import os
 
 custom_imports = dict(
     imports=[
@@ -18,7 +18,7 @@ custom_imports = dict(
     ],
     allow_failed_imports=False)
 
-data_root = os.getenv('AITOD_DATA_ROOT', '/mnt/e/AI-TOD/')
+data_root = os.getenv('AITOD_DATA_ROOT', '/home/zhicheng/SCP/data/AITOD/')
 backend_args = None
 
 # SCPV2 uses the teacher's original semantic category space.

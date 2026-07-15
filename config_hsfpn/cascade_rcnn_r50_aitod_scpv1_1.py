@@ -3,9 +3,9 @@
 # This config does not modify the original SCP/SCPV2 experiments.  It imports
 # separate SCPV1-1 neck and detector modules for clean ablation.
 
-import os
-
 _base_ = ['./cascade_rcnn_r50_aitod.py']
+
+import os
 
 custom_imports = dict(
     imports=[
@@ -18,7 +18,7 @@ custom_imports = dict(
     ],
     allow_failed_imports=False)
 
-data_root = os.getenv('AITOD_DATA_ROOT', '/mnt/e/AI-TOD/')
+data_root = os.getenv('AITOD_DATA_ROOT', '/home/zhicheng/SCP/data/AITOD/')
 backend_args = None
 
 pseudo_label_num_classes = int(os.getenv('SCP_PSEUDO_LABEL_NUM_CLASSES', '150'))

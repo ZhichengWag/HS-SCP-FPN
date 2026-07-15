@@ -1,37 +1,44 @@
-# Cascade R-CNN R50-FPN baseline for VisDrone2019-DET.
-
-import os
+# Cascade R-CNN R50 HS-FPN on VisDrone2019-DET.
+#
+# Uses train for training and val for both validation and testing. The
+# test-challenge split is intentionally not used.
 
 _base_ = ['./cascade_rcnn_r50_aitod.py']
 
-data_root = os.getenv('VISDRONE_DATA_ROOT',
-                      '/mnt/e/\u6570\u636e\u96c6/VisDrone2019/')
-train_ann_file = os.getenv('VISDRONE_TRAIN_ANN',
-                           'annotations/visdrone2019_det_train_coco.json')
-val_ann_file = os.getenv('VISDRONE_VAL_ANN',
-                         'annotations/visdrone2019_det_val_coco.json')
-train_img_prefix = os.getenv('VISDRONE_TRAIN_IMG_PREFIX',
-                             'VisDrone2019-DET-train/images')
-val_img_prefix = os.getenv('VISDRONE_VAL_IMG_PREFIX',
-                           'VisDrone2019-DET-val/images')
+import os
 
 dataset_type = 'CocoDataset'
+data_root = os.getenv('VISDRONE_DATA_ROOT',
+                      '/home/zhicheng/SCP/data/VisDrone2019_DET/')
 backend_args = None
 
 visdrone_metainfo = dict(
-    classes=('pedestrian', 'people', 'bicycle', 'car', 'van', 'truck',
-             'tricycle', 'awning-tricycle', 'bus', 'motor'),
-    palette=[(220, 20, 60), (0, 128, 255), (119, 11, 32), (0, 0, 142),
-             (0, 0, 230), (106, 0, 228), (0, 60, 100), (0, 80, 100),
-             (0, 0, 70), (250, 170, 30)])
+    classes=(
+        'pedestrian',
+        'people',
+        'bicycle',
+        'car',
+        'van',
+        'truck',
+        'tricycle',
+        'awning-tricycle',
+        'bus',
+        'motor',
+    ),
+    palette=[
+        (220, 20, 60),
+        (119, 11, 32),
+        (0, 0, 142),
+        (0, 0, 230),
+        (106, 0, 228),
+        (0, 60, 100),
+        (0, 80, 100),
+        (0, 0, 70),
+        (250, 170, 30),
+        (100, 170, 30),
+    ])
 
 model = dict(
-    neck=dict(
-        _delete_=True,
-        type='FPN',
-        in_channels=[256, 512, 1024, 2048],
-        out_channels=256,
-        num_outs=5),
     roi_head=dict(
         bbox_head=[
             dict(
@@ -106,39 +113,36 @@ test_pipeline = [
 ]
 
 train_dataloader = dict(
-    batch_size=2,
+    batch_size=1,
     dataset=dict(
         type=dataset_type,
         data_root=data_root,
-        ann_file=train_ann_file,
-        data_prefix=dict(img=train_img_prefix),
+        ann_file='annotations/instances_train2019.json',
+        data_prefix=dict(img='VisDrone2019-DET-train/images'),
         metainfo=visdrone_metainfo,
         filter_cfg=dict(filter_empty_gt=True, min_size=1),
         pipeline=train_pipeline,
         backend_args=backend_args))
 
 val_dataloader = dict(
-    batch_size=1,
     dataset=dict(
         type=dataset_type,
         data_root=data_root,
-        ann_file=val_ann_file,
-        data_prefix=dict(img=val_img_prefix),
+        ann_file='annotations/instances_val2019.json',
+        data_prefix=dict(img='VisDrone2019-DET-val/images'),
         metainfo=visdrone_metainfo,
         test_mode=True,
         pipeline=test_pipeline,
         backend_args=backend_args))
+
 test_dataloader = val_dataloader
 
 val_evaluator = dict(
     type='CocoMetric',
-    ann_file=os.path.join(data_root, val_ann_file),
+    ann_file=data_root + 'annotations/instances_val2019.json',
     metric='bbox',
     format_only=False,
     backend_args=backend_args)
 test_evaluator = val_evaluator
 
-optim_wrapper = dict(optimizer=dict(lr=0.005))
-train_cfg = dict(type='EpochBasedTrainLoop', max_epochs=12, val_interval=12)
-
-work_dir = '/mnt/e/mmdet5090/work_dirs/cascade_rcnn_r50_visdrone_fpn_b2_epoch12'
+work_dir = '/home/zhicheng/SCP/work_dirs/cascade_rcnn_r50_visdrone'

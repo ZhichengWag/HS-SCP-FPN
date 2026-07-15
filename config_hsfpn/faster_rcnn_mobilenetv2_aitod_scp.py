@@ -5,6 +5,8 @@
 
 _base_ = ['./faster_rcnn_mobilenetv2_aitod.py']
 
+import os
+
 custom_imports = dict(
     imports=[
         'mmdet.datasets.aitod',
@@ -16,7 +18,7 @@ custom_imports = dict(
     ],
     allow_failed_imports=False)
 
-data_root = '/mnt/e/AI-TOD/'
+data_root = os.getenv('AITOD_DATA_ROOT', '/home/zhicheng/SCP/data/AITOD/')
 backend_args = None
 pseudo_label_root = data_root + 'pseudo_labels/trainval'
 
