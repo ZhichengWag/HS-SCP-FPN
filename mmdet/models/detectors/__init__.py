@@ -46,6 +46,7 @@ from .rtmdet import RTMDet
 from .scnet import SCNet
 from .scp_cascade_rcnn import SCPCascadeRCNN
 from .scp_cascade_rcnn_v2 import SCPCascadeRCNNV2
+from .scp_fcos import SCPFCOS
 from .scp_faster_rcnn import SCPFasterRCNN
 from .semi_base import SemiBaseDetector
 from .single_stage import SingleStageDetector
@@ -75,5 +76,5 @@ __all__ = [
     'RTMDet', 'Detectron2Wrapper', 'CrowdDet', 'CondInst', 'BoxInst',
     'DetectionTransformer', 'ConditionalDETR', 'DINO', 'DABDETR', 'GLIP',
     'DDQDETR', 'GroundingDINO', 'SCPCascadeRCNN', 'SCPCascadeRCNNV2',
-    'SCPFasterRCNN'
+    'SCPFasterRCNN', 'SCPFCOS'
 ]
