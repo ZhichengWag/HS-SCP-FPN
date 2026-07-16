@@ -58,10 +58,24 @@ Example:
 import ast
 from argparse import ArgumentParser
 
+import torch
 from mmengine.logging import print_log
 
 from mmdet.apis import DetInferencer
 from mmdet.evaluation import get_classes
+
+
+_ORIGINAL_TORCH_LOAD = torch.load
+
+
+def _torch_load_compatible_with_legacy_checkpoints(*args, **kwargs):
+    # PyTorch 2.6+ defaults weights_only=True, but OpenMMLab checkpoints may
+    # contain metadata objects such as mmengine HistoryBuffer.
+    kwargs.setdefault('weights_only', False)
+    return _ORIGINAL_TORCH_LOAD(*args, **kwargs)
+
+
+torch.load = _torch_load_compatible_with_legacy_checkpoints
 
 
 def parse_args():
