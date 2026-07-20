@@ -34,7 +34,9 @@ model = dict(
         num_stages=4,
         out_indices=(0, 1, 2, 3),
         frozen_stages=1,
-        norm_cfg=dict(type='BN', requires_grad=True),
+        # Keep the P2--P6 pyramid, while matching the SET FCOS backbone
+        # normalization behaviour.
+        norm_cfg=dict(type='BN', requires_grad=False),
         norm_eval=True,
         style='pytorch',
         init_cfg=dict(type='Pretrained', checkpoint='torchvision://resnet50')),
@@ -48,18 +50,26 @@ model = dict(
         relu_before_extra_convs=True),
     bbox_head=dict(
         type='FCOSHead',
+        # Match SET FCOS head design.  The feature strides intentionally
+        # remain P2--P6 for AI-TOD small-object coverage.
+        norm_cfg=None,
         num_classes=8,
         in_channels=256,
         stacked_convs=4,
         feat_channels=256,
         strides=[4, 8, 16, 32, 64],
+        norm_on_bbox=True,
+        centerness_on_reg=True,
+        dcn_on_last_conv=False,
+        center_sampling=True,
+        conv_bias=True,
         loss_cls=dict(
             type='FocalLoss',
             use_sigmoid=True,
             gamma=2.0,
             alpha=0.25,
             loss_weight=1.0),
-        loss_bbox=dict(type='IoULoss', loss_weight=1.0),
+        loss_bbox=dict(type='DIoULoss', loss_weight=1.0),
         loss_centerness=dict(
             type='CrossEntropyLoss', use_sigmoid=True, loss_weight=1.0)),
     test_cfg=dict(

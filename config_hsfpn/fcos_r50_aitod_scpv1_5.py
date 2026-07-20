@@ -63,7 +63,7 @@ train_pipeline = [
     dict(type='PackDetInputs'),
 ]
 
-train_dataloader = dict(batch_size=1, dataset=dict(pipeline=train_pipeline))
+train_dataloader = dict(batch_size=2, dataset=dict(pipeline=train_pipeline))
 
 custom_hooks = [dict(type='SetEpochInfoHook'), dict(type='NumClassCheckHook')]
 
