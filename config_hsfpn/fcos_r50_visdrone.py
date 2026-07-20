@@ -12,11 +12,12 @@ import os
 
 custom_imports = dict(imports=['mmdet.models'], allow_failed_imports=False)
 
-data_root = os.getenv('VISDRONE_DATA_ROOT', '/mnt/e/数据集/VisDrone2019/')
+data_root = os.getenv('VISDRONE_DATA_ROOT',
+                      '/home/zhicheng/SCP/data/VisDrone2019_DET/')
 train_ann_file = os.getenv('VISDRONE_TRAIN_ANN',
-                           'annotations/visdrone2019_det_train_coco.json')
+                           'annotations/instances_train2019.json')
 val_ann_file = os.getenv('VISDRONE_VAL_ANN',
-                         'annotations/visdrone2019_det_val_coco.json')
+                         'annotations/instances_val2019.json')
 train_img_prefix = os.getenv('VISDRONE_TRAIN_IMG_PREFIX',
                              'VisDrone2019-DET-train/images')
 val_img_prefix = os.getenv('VISDRONE_VAL_IMG_PREFIX',

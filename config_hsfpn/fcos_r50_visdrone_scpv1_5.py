@@ -17,7 +17,8 @@ custom_imports = dict(
     ],
     allow_failed_imports=False)
 
-data_root = os.getenv('VISDRONE_DATA_ROOT', '/mnt/e/数据集/VisDrone2019/')
+data_root = os.getenv('VISDRONE_DATA_ROOT',
+                      '/home/zhicheng/SCP/data/VisDrone2019_DET/')
 backend_args = None
 
 pseudo_label_num_classes = int(
